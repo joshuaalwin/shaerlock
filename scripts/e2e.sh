@@ -50,24 +50,38 @@ FAILED=0
 # under sudo. Run the script as your normal user to exercise that step. The
 # only step that genuinely needs root is the fragmentation demo.
 
+# Helper: run a command as the regular user even when the script is invoked
+# with sudo. This keeps root from writing to the venv's site-packages and
+# leaving root-owned partial dist-info directories on subsequent reinstalls.
+as_user() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]] && [[ -n "${SUDO_USER:-}" ]]; then
+    sudo -u "$SUDO_USER" -E "$@"
+  else
+    "$@"
+  fi
+}
+
 # ---------- 1: venv --------------------------------------------------------
 
 step "1. venv bootstrap"
 
 if [[ ! -d ".venv" ]]; then
-  python3 -m venv .venv || { record_fail "venv create" "python3 -m venv failed"; exit 1; }
+  as_user python3 -m venv .venv || { record_fail "venv create" "python3 -m venv failed"; exit 1; }
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-.venv/bin/python -m ensurepip --upgrade >/dev/null 2>&1 || true
+as_user .venv/bin/python -m ensurepip --upgrade >/dev/null 2>&1 || true
 record_pass "venv ready at .venv"
 
 # ---------- 2: install -----------------------------------------------------
 
 step "2. pip install -e .[anthropic,dev]"
 
-if .venv/bin/python -m pip install -e ".[anthropic,dev]" --quiet; then
+# Always install as the regular user. Running pip as root leaves root-owned
+# dist-info directories that produce 'invalid distribution ~haerlock'
+# warnings on every subsequent install.
+if as_user .venv/bin/python -m pip install -e ".[anthropic,dev]" --quiet; then
   record_pass "editable install"
 else
   record_fail "editable install" "pip install failed"
