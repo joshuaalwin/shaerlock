@@ -5,17 +5,25 @@
 # the shipped fixtures, and the evaluation harness. Exits non-zero if any
 # required step fails. Skipped (not failed) when prerequisites are absent:
 #
-#   * the Anthropic provider step is skipped when no key is configured.
+#   * the Anthropic provider step is skipped when no key is accessible.
+#     When running as root (sudo), the user keyring is not reachable, so
+#     pass the key via ANTHROPIC_API_KEY env var:
+#         sudo ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" ./scripts/e2e.sh
 #   * the fragmentation demo step is skipped when not running as root.
 #
 # Usage:
-#   ./scripts/e2e.sh                 # required steps only
-#   sudo ./scripts/e2e.sh            # also runs the fragmentation demo
+#   ./scripts/e2e.sh                                          # required steps
+#   sudo ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" ./scripts/e2e.sh  # full run
 
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
+
+# Use a per-run temp dir owned by the current user so there are no permission
+# conflicts when the same script is run as root and then as a regular user.
+RUNDIR=$(mktemp -d)
+trap 'rm -rf "$RUNDIR"' EXIT
 
 # ---------- helpers --------------------------------------------------------
 
@@ -46,8 +54,6 @@ fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-# Some user setups have a system pip earlier on PATH (Python 2.7 leftover).
-# Always go through the venv's python -m pip.
 .venv/bin/python -m ensurepip --upgrade >/dev/null 2>&1 || true
 record_pass "venv ready at .venv"
 
@@ -66,31 +72,29 @@ fi
 
 step "3. pytest"
 
-if .venv/bin/pytest --tb=no >/tmp/e2e-pytest.log 2>&1; then
-  summary=$(grep -oE '[0-9]+ passed in [0-9.]+s' /tmp/e2e-pytest.log | tail -1)
+if .venv/bin/pytest --tb=no >"$RUNDIR/pytest.log" 2>&1; then
+  summary=$(grep -oE '[0-9]+ passed in [0-9.]+s' "$RUNDIR/pytest.log" | tail -1)
   [[ -z "$summary" ]] && summary="passed"
   record_pass "pytest ($summary)"
 else
-  record_fail "pytest" "see /tmp/e2e-pytest.log"
+  record_fail "pytest" "see $RUNDIR/pytest.log"
 fi
 
 # ---------- 4: deterministic audit on flawed fixture -----------------------
 
 step "4. shaerlock audit (deterministic, flawed fixture)"
 
-OUT="/tmp/e2e-audit-flawed.json"
+AUDIT_JSON="$RUNDIR/audit-flawed.json"
 if .venv/bin/shaerlock audit tests/fixtures/flawed-ruleset.txt --no-llm \
-        --json "$OUT" >/dev/null 2>&1; then
-  # Verify against the JSON, not the rich-formatted terminal output
-  # (rich truncates long class names with an ellipsis).
+        --json "$AUDIT_JSON" >/dev/null 2>&1; then
   missing=()
   for cls in SHADOWING GENERALIZATION CORRELATION REDUNDANCY; do
-    if ! jq -e --arg c "$cls" '[.[].finding.anomaly_class] | index($c)' "$OUT" >/dev/null 2>&1; then
+    if ! jq -e --arg c "$cls" '[.[].finding.anomaly_class] | index($c)' "$AUDIT_JSON" >/dev/null 2>&1; then
       missing+=("$cls")
     fi
   done
   if [[ ${#missing[@]} -eq 0 ]]; then
-    total=$(jq 'length' "$OUT")
+    total=$(jq 'length' "$AUDIT_JSON")
     record_pass "every planted anomaly class present ($total findings)"
   else
     record_fail "audit (flawed)" "missing classes: ${missing[*]}"
@@ -104,8 +108,8 @@ fi
 step "5. shaerlock audit (deterministic, clean fixture)"
 
 if .venv/bin/shaerlock audit tests/fixtures/clean-ruleset.txt --no-llm \
-        >/tmp/e2e-audit-clean.log 2>&1; then
-  if grep -q "no anomalies detected" /tmp/e2e-audit-clean.log; then
+        >"$RUNDIR/audit-clean.log" 2>&1; then
+  if grep -q "no anomalies detected" "$RUNDIR/audit-clean.log"; then
     record_pass "clean ruleset produced no findings"
   else
     record_fail "audit (clean)" "expected 'no anomalies detected'"
@@ -118,12 +122,12 @@ fi
 
 step "6. shaerlock evaluate (deterministic only)"
 
-OUT="/tmp/e2e-no-llm.json"
+EVAL_JSON="$RUNDIR/eval-no-llm.json"
 if .venv/bin/shaerlock evaluate tests/fixtures/flawed-ruleset.txt \
         tests/fixtures/flawed-ruleset.ANSWERS.md \
-        --provider none --out "$OUT" >/dev/null 2>&1; then
-  recall=$(jq -r '.deterministic.recall' "$OUT")
-  fn=$(jq -r '.deterministic.false_negative' "$OUT")
+        --provider none --out "$EVAL_JSON" >/dev/null 2>&1; then
+  recall=$(jq -r '.deterministic.recall' "$EVAL_JSON")
+  fn=$(jq -r '.deterministic.false_negative' "$EVAL_JSON")
   if [[ "$recall" == "1.0" ]] && [[ "$fn" == "0" ]]; then
     record_pass "recall=1.0, false_negative=0"
   else
@@ -137,14 +141,15 @@ fi
 
 step "7. shaerlock evaluate (anthropic)"
 
-# Only attempt when a key is reachable.
+# Key lookup: env var first (works under sudo), then keyring (works for
+# the regular user).
 if .venv/bin/python -c "from ai_fw_audit.secrets import get_secret; import sys; sys.exit(0 if get_secret('ANTHROPIC_API_KEY') else 1)" 2>/dev/null; then
-  OUT="/tmp/e2e-anthropic.json"
+  EVAL_ANTH_JSON="$RUNDIR/eval-anthropic.json"
   if .venv/bin/shaerlock evaluate tests/fixtures/flawed-ruleset.txt \
           tests/fixtures/flawed-ruleset.ANSWERS.md \
-          --provider anthropic --out "$OUT" >/dev/null 2>&1; then
-    halluc=$(jq -r '(.llm.hallucinated_rule_refs | length)' "$OUT")
-    enriched=$(jq -r '.llm.enriched_count' "$OUT")
+          --provider anthropic --out "$EVAL_ANTH_JSON" >/dev/null 2>&1; then
+    halluc=$(jq -r '(.llm.hallucinated_rule_refs | length)' "$EVAL_ANTH_JSON")
+    enriched=$(jq -r '.llm.enriched_count' "$EVAL_ANTH_JSON")
     if [[ "$halluc" == "0" ]]; then
       record_pass "$enriched enriched, hallucinated_rule_refs=0"
     else
@@ -154,7 +159,7 @@ if .venv/bin/python -c "from ai_fw_audit.secrets import get_secret; import sys; 
     record_fail "evaluate (anthropic)" "non-zero exit"
   fi
 else
-  record_skip "evaluate (anthropic)" "ANTHROPIC_API_KEY not configured"
+  record_skip "evaluate (anthropic)" "ANTHROPIC_API_KEY not configured (use: sudo ANTHROPIC_API_KEY=\"\$ANTHROPIC_API_KEY\" ./scripts/e2e.sh)"
 fi
 
 # ---------- 8: fragmentation demo (optional, root-only) --------------------
@@ -162,16 +167,20 @@ fi
 step "8. shaerlock demo (fragmentation, requires root)"
 
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-  PCAP="/tmp/e2e-frag.pcap"
-  if .venv/bin/shaerlock demo --pcap "$PCAP" >/tmp/e2e-demo.log 2>&1; then
+  PCAP="$RUNDIR/frag.pcap"
+  if .venv/bin/shaerlock demo --pcap "$PCAP" >"$RUNDIR/demo.log" 2>&1; then
     if [[ -s "$PCAP" ]] && capinfos -c "$PCAP" 2>/dev/null | grep -qE 'Number of packets:[[:space:]]*[1-9]'; then
       pkts=$(capinfos -c "$PCAP" | awk '/Number of packets:/ {print $NF}')
-      record_pass "pcap captured ($pkts packets)"
+      # Copy pcap to a persistent location for Wireshark inspection.
+      cp "$PCAP" /tmp/e2e-frag-latest.pcap 2>/dev/null || true
+      record_pass "pcap captured ($pkts packets) — /tmp/e2e-frag-latest.pcap"
     else
+      fail "demo log:" && cat "$RUNDIR/demo.log"
       record_fail "demo" "pcap missing or has 0 packets"
     fi
   else
-    record_fail "demo" "non-zero exit, see /tmp/e2e-demo.log"
+    cat "$RUNDIR/demo.log"
+    record_fail "demo" "non-zero exit (see above)"
   fi
 else
   record_skip "demo" "not running as root"
