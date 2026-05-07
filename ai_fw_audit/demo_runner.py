@@ -53,6 +53,8 @@ def _ensure_pcap_dir(pcap_out: Path) -> None:
 @contextmanager
 def _tcpdump(pcap_out: Path, console: Console):
     """Spawn tcpdump on lo, write to pcap_out, kill on exit."""
+    import select
+
     if shutil.which("tcpdump") is None:
         console.print("[yellow]tcpdump not on PATH — skipping capture[/]")
         yield None
@@ -60,10 +62,20 @@ def _tcpdump(pcap_out: Path, console: Console):
     cmd = ["tcpdump", "-i", "lo", "-w", str(pcap_out), "-U", "ip"]
     console.print(f"[dim]starting capture: {' '.join(cmd)}[/]")
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    time.sleep(0.5)  # let tcpdump open the BPF filter
+    # Wait for tcpdump to confirm it is listening before sending any packets.
+    # Without this, packets sent during tcpdump's BPF-filter setup are missed
+    # and the pcap lands with 0 packets.
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        r, _, _ = select.select([proc.stderr], [], [], 0.1)
+        if r:
+            line = proc.stderr.readline()
+            if b"listening on" in line:
+                break
     try:
         yield proc
     finally:
+        time.sleep(0.3)  # give tcpdump time to flush the last packet
         proc.terminate()
         try:
             proc.wait(timeout=2)
