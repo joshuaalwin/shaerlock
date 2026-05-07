@@ -66,9 +66,9 @@ fi
 
 step "3. pytest"
 
-if .venv/bin/pytest -q >/tmp/e2e-pytest.log 2>&1; then
-  summary=$(grep -oE '[0-9]+ passed[^,]*' /tmp/e2e-pytest.log | tail -1)
-  [[ -z "$summary" ]] && summary=$(tail -1 /tmp/e2e-pytest.log)
+if .venv/bin/pytest --tb=no >/tmp/e2e-pytest.log 2>&1; then
+  summary=$(grep -oE '[0-9]+ passed in [0-9.]+s' /tmp/e2e-pytest.log | tail -1)
+  [[ -z "$summary" ]] && summary="passed"
   record_pass "pytest ($summary)"
 else
   record_fail "pytest" "see /tmp/e2e-pytest.log"
