@@ -28,7 +28,10 @@ class AnthropicProvider(LLMProvider):
                 "ANTHROPIC_API_KEY not configured. "
                 "Run `shaerlock configure` to store it in the OS keyring."
             )
-        self._client = anthropic.Anthropic(api_key=api_key)
+        # 30s per request is plenty for a constrained-JSON response. The SDK
+        # default is 10 minutes, which causes the e2e harness to appear hung
+        # if a single request stalls.
+        self._client = anthropic.Anthropic(api_key=api_key, timeout=30.0)
         self._model = model or os.environ.get("AI_FW_AUDIT_ANTHROPIC_MODEL", DEFAULT_MODEL)
         self._max_tokens = max_tokens
 

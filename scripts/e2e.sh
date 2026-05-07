@@ -151,9 +151,12 @@ step "7. shaerlock evaluate (anthropic)"
 # the regular user).
 if .venv/bin/python -c "from ai_fw_audit.secrets import get_secret; import sys; sys.exit(0 if get_secret('ANTHROPIC_API_KEY') else 1)" 2>/dev/null; then
   EVAL_ANTH_JSON="$RUNDIR/eval-anthropic.json"
-  if .venv/bin/shaerlock evaluate tests/fixtures/flawed-ruleset.txt \
+  # 13 enrichments at 30s SDK timeout each = 390s worst case. Cap at 300s
+  # wall clock. Show stderr (progress markers) so the user can see it
+  # iterating instead of staring at a frozen line.
+  if timeout 300 .venv/bin/shaerlock evaluate tests/fixtures/flawed-ruleset.txt \
           tests/fixtures/flawed-ruleset.ANSWERS.md \
-          --provider anthropic --out "$EVAL_ANTH_JSON" >/dev/null 2>&1; then
+          --provider anthropic --out "$EVAL_ANTH_JSON" >/dev/null; then
     halluc=$(jq -r '(.llm.hallucinated_rule_refs | length)' "$EVAL_ANTH_JSON")
     enriched=$(jq -r '.llm.enriched_count' "$EVAL_ANTH_JSON")
     if [[ "$halluc" == "0" ]]; then
@@ -162,7 +165,12 @@ if .venv/bin/python -c "from ai_fw_audit.secrets import get_secret; import sys; 
       record_fail "evaluate (anthropic)" "hallucinated_rule_refs=$halluc"
     fi
   else
-    record_fail "evaluate (anthropic)" "non-zero exit"
+    rc=$?
+    if [[ $rc -eq 124 ]]; then
+      record_fail "evaluate (anthropic)" "timed out after 300s"
+    else
+      record_fail "evaluate (anthropic)" "non-zero exit ($rc)"
+    fi
   fi
 else
   record_skip "evaluate (anthropic)" "ANTHROPIC_API_KEY not reachable"
