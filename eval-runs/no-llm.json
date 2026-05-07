@@ -1,0 +1,21 @@
+{
+  "ruleset": "tests/fixtures/flawed-ruleset.txt",
+  "answers": "tests/fixtures/flawed-ruleset.ANSWERS.md",
+  "provider": "none",
+  "deterministic": {
+    "planted": 5,
+    "found": 13,
+    "true_positive": 5,
+    "false_positive": 8,
+    "false_negative": 0,
+    "recall": 1.0,
+    "precision": 0.385,
+    "missing_planted_defects": []
+  },
+  "llm": {
+    "enriched_count": 0,
+    "severity_distribution": {},
+    "hallucinated_rule_refs": [],
+    "samples": []
+  }
+}

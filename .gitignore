@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+*.pcap
+.env
+.DS_Store
+
+# intermediate scratch from an interactive session, not a receipt cited in
+# docs/EVALUATION.md
+eval-runs/findings-only.json

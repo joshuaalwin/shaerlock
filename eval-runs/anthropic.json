@@ -1,0 +1,76 @@
+{
+  "ruleset": "tests/fixtures/flawed-ruleset.txt",
+  "answers": "tests/fixtures/flawed-ruleset.ANSWERS.md",
+  "provider": "anthropic",
+  "deterministic": {
+    "planted": 5,
+    "found": 13,
+    "true_positive": 5,
+    "false_positive": 8,
+    "false_negative": 0,
+    "recall": 1.0,
+    "precision": 0.385,
+    "missing_planted_defects": []
+  },
+  "llm": {
+    "enriched_count": 13,
+    "severity_distribution": {
+      "LOW": 1,
+      "HIGH": 4,
+      "MEDIUM": 8
+    },
+    "hallucinated_rule_refs": [],
+    "samples": [
+      {
+        "class": "REDUNDANCY",
+        "rules": [
+          3,
+          4
+        ],
+        "severity": "LOW",
+        "explanation": "Rule 4 is an exact duplicate of rule 3, meaning it will never be evaluated since rule 3 always matches first; this is purely cosmetic with no functional impact on traffic flow or security posture.",
+        "suggested_fix": "Remove the duplicate rule at index 4 from the INPUT chain to keep the ruleset clean and avoid confusion during future audits."
+      },
+      {
+        "class": "CORRELATION",
+        "rules": [
+          3,
+          6
+        ],
+        "severity": "HIGH",
+        "explanation": "Rule 3 unconditionally accepts all TCP port 22 traffic before rule 6 can drop packets from the 10.1.0.0/16 subnet, meaning hosts in that subnet can still reach SSH despite the apparent intent to block them. This creates an unintended security gap where a network segment that should be denied access retains SSH connectivity.",
+        "suggested_fix": "Insert an explicit DROP rule for TCP port 22 from the 10.1.0.0/16 source (or any source range meant to be blocked) at an index before rule 3, so the deny is evaluated first; alternatively, reorder rule 6 to appear before rule 3 if the intent is to block that subnet from all services including SSH."
+      },
+      {
+        "class": "CORRELATION",
+        "rules": [
+          4,
+          6
+        ],
+        "severity": "MEDIUM",
+        "explanation": "Rule 4 accepts all TCP port 22 traffic regardless of source, and rule 6 drops all traffic from 10.1.0.0/16 regardless of protocol or port. Because rule 4 appears first, any SSH connection from 10.1.0.0/16 will be accepted and never reach rule 6, meaning the DROP for that subnet is partially bypassed for port 22. This creates ambiguity about whether internal 10.1.0.0/16 hosts should be permitted SSH access.",
+        "suggested_fix": "If 10.1.0.0/16 should not have SSH access, insert a source-specific DROP for tcp/22 from that subnet before rule 4 (lower index). If SSH from that subnet is intentional, document it explicitly and tighten rule 6 to exclude port 22 to avoid confusion."
+      },
+      {
+        "class": "SHADOWING",
+        "rules": [
+          5,
+          6
+        ],
+        "severity": "HIGH",
+        "explanation": "Rule 5 accepts all traffic from the entire 10.0.0.0/8 range, which completely shadows rule 6's intended DROP for the 10.1.0.0/16 subnet. This means traffic from 10.1.0.0/16 that was supposed to be blocked is silently accepted, defeating an explicit security boundary.",
+        "suggested_fix": "Move the more-specific DROP rule for 10.1.0.0/16 to an index before the broader 10.0.0.0/8 ACCEPT rule so it is evaluated first and can take effect."
+      },
+      {
+        "class": "CORRELATION",
+        "rules": [
+          5,
+          8
+        ],
+        "severity": "MEDIUM",
+        "explanation": "Rule 5 unconditionally ACCEPTs all traffic from the 10.0.0.0/8 internal range, meaning any internal host connecting to TCP/UDP ports 85-95 will be accepted by rule 5 before rule 8 (DROP) is ever evaluated. Conversely, external hosts hitting ports 85-95 are dropped correctly. This creates an ambiguous security boundary where the intended block on ports 85-95 is silently bypassed for the entire internal /8 network.",
+        "suggested_fix": "If ports 85-95 should be blocked even for internal hosts, insert a DROP rule for that port range above rule 5 (before index 5) so it is evaluated first; if internal hosts should be exempt from that block, document the intent explicitly and consider scoping rule 8 to non-RFC1918 sources to eliminate the ambiguity."
+      }
+    ]
+  }
+}
