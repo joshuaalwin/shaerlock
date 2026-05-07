@@ -45,18 +45,10 @@ record_fail() { results+=("FAIL $1 ($2)"); fail "$1 ($2)"; FAILED=1; }
 FAILED=0
 
 # When running as root via sudo, the Anthropic API key lives in the regular
-# user's OS keyring which root cannot access. Fetch it now by running Python
-# as the original user (SUDO_USER) so the rest of the script can use it via
-# the ANTHROPIC_API_KEY env var, which get_secret() checks before the keyring.
-if [[ "${EUID:-$(id -u)}" -eq 0 ]] && [[ -n "${SUDO_USER:-}" ]] && [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-  _key=$(sudo -u "$SUDO_USER" "${ROOT}/.venv/bin/python" \
-    -c "from ai_fw_audit.secrets import get_secret; k=get_secret('ANTHROPIC_API_KEY'); print(k if k else '', end='')" \
-    2>/dev/null || true)
-  if [[ -n "${_key:-}" ]]; then
-    export ANTHROPIC_API_KEY="$_key"
-  fi
-  unset _key
-fi
+# user's OS keyring which root cannot access (DBUS_SESSION_BUS_ADDRESS is not
+# preserved through sudo). The Anthropic step is therefore expected to skip
+# under sudo. Run the script as your normal user to exercise that step. The
+# only step that genuinely needs root is the fragmentation demo.
 
 # ---------- 1: venv --------------------------------------------------------
 

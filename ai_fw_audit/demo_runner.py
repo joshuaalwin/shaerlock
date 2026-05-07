@@ -25,10 +25,7 @@ Why on loopback only
 from __future__ import annotations
 
 import os
-import shutil
 import socket
-import subprocess
-import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -51,37 +48,32 @@ def _ensure_pcap_dir(pcap_out: Path) -> None:
 
 
 @contextmanager
-def _tcpdump(pcap_out: Path, console: Console):
-    """Spawn tcpdump on lo, write to pcap_out, kill on exit."""
-    import select
+def _capture(pcap_out: Path, console: Console):
+    """Capture packets on lo using scapy's AsyncSniffer and write a pcap.
 
-    if shutil.which("tcpdump") is None:
-        console.print("[yellow]tcpdump not on PATH — skipping capture[/]")
-        yield None
-        return
-    cmd = ["tcpdump", "-i", "lo", "-w", str(pcap_out), "-U", "ip"]
-    console.print(f"[dim]starting capture: {' '.join(cmd)}[/]")
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    # Wait for tcpdump to confirm it is listening before sending any packets.
-    # Without this, packets sent during tcpdump's BPF-filter setup are missed
-    # and the pcap lands with 0 packets.
-    deadline = time.time() + 5.0
-    while time.time() < deadline:
-        r, _, _ = select.select([proc.stderr], [], [], 0.1)
-        if r:
-            line = proc.stderr.readline()
-            if b"listening on" in line:
-                break
+    Originally we shelled out to tcpdump for this, but the timing race
+    between tcpdump opening its BPF filter and scapy sending the packets
+    led to empty pcaps on some systems. AsyncSniffer is in-process, uses
+    the same scapy library that sends the packets, and gives a cleaner
+    signal about when capture is actually live.
+    """
+    from scapy.all import AsyncSniffer, wrpcap  # type: ignore
+
+    console.print("[dim]starting capture on lo (scapy AsyncSniffer, filter='ip')[/]")
+    sniffer = AsyncSniffer(iface="lo", filter="ip", store=True)
+    sniffer.start()
+    time.sleep(0.5)  # let the underlying PF_PACKET socket attach
     try:
-        yield proc
+        yield sniffer
     finally:
-        time.sleep(0.3)  # give tcpdump time to flush the last packet
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        console.print(f"[green]capture written to[/] {pcap_out}")
+        time.sleep(0.5)  # let in-flight packets reach the sniffer
+        sniffer.stop()
+        results = list(sniffer.results) if sniffer.results else []
+        wrpcap(str(pcap_out), results)
+        console.print(
+            f"[green]capture written to[/] {pcap_out} "
+            f"([bold]{len(results)}[/] packets)"
+        )
 
 
 @contextmanager
@@ -173,7 +165,7 @@ def run_fragmentation_demo(
         )
     )
 
-    capture_ctx = _tcpdump(pcap_out, console) if not no_capture else _null_ctx()
+    capture_ctx = _capture(pcap_out, console) if not no_capture else _null_ctx()
     listener_ctx = _udp_listener(target_port, console) if not overlap_only else _null_ctx()
 
     with capture_ctx, listener_ctx:
