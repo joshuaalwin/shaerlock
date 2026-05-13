@@ -105,7 +105,7 @@ const TOTAL = 11;
     color: WHITE,
   });
 
-  s.addText("Auditing iptables with separated detection and explanation.", {
+  s.addText("AI-Driven Firewall Rule Analysis and Evasion Detection.", {
     x: 3.2, y: 3.7, w: 9, h: 0.6,
     fontFace: FONT_BODY, fontSize: 20, italic: true,
     color: ICE,
