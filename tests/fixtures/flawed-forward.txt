@@ -1,0 +1,18 @@
+# Synthetic flawed FORWARD-chain ruleset for ai-fw-audit (ENPM693 final project).
+# Format: iptables-save, filter table only.
+# Planted defects documented separately in flawed-forward.ANSWERS.md.
+# DO NOT load this on a live host.
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+-A FORWARD -i eth0 -o eth1 -s 192.168.1.0/24 -d 10.0.0.0/8 -p tcp --dport 443 -j ACCEPT
+-A FORWARD -i eth0 -o eth1 -s 192.168.1.0/24 -d 10.0.0.0/8 -p tcp --dport 443 -j DROP
+-A FORWARD -i eth0 -o eth1 -s 192.168.1.0/24 -d 10.0.0.0/8 -p tcp --dport 80 -j ACCEPT
+-A FORWARD -i eth0 -o eth1 -s 192.168.0.0/16 -d 10.0.0.0/8 -p tcp --dport 80 -j DROP
+-A FORWARD -i eth0 -o eth1 -p tcp --dport 8000:9000 -j ACCEPT
+-A FORWARD -i eth0 -o eth1 -p tcp --dport 8500:9500 -j DROP
+-A FORWARD -i eth0 -o eth1 -s 172.16.0.0/12 -d 10.0.0.0/8 -p udp --dport 53 -j ACCEPT
+-A FORWARD -i eth0 -o eth1 -s 172.16.0.0/12 -d 10.0.0.0/8 -p udp --dport 53 -j ACCEPT
+COMMIT

@@ -1,17 +1,43 @@
+# Python
 .venv/
+.venv-*/
 __pycache__/
 *.pyc
-.pytest_cache/
-.ruff_cache/
+*.pyo
 *.egg-info/
 build/
 dist/
+
+# Testing
+.pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
-*.pcap
-.env
-.DS_Store
 
-# intermediate scratch from an interactive session, not a receipt cited in
-# docs/EVALUATION.md
+# Secrets and credentials
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Demo artifacts
+*.pcap
+
+# Slide build artifacts
+slides/node_modules/
+slides/qa/
+slides/shaerlock.pdf
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Intermediate scratch (not an eval receipt)
 eval-runs/findings-only.json

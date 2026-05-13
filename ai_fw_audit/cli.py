@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from . import __version__
 from .analyzer import analyze, skipped_rules
 from .enricher import enrich
 from .evasion import map_finding
@@ -18,12 +19,30 @@ from .llm.base import get_provider
 from .parser import parse_iptables_save
 from .schemas import Severity
 
+
+def _version_callback(value: bool):
+    if value:
+        typer.echo(f"shaerlock {__version__}")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     name="shaerlock",
-    help="An iptables policy detective. Deterministic discovery, LLM-narrated findings, evasion linkage. UMD ENPM693 final project.",
     add_completion=False,
     no_args_is_help=True,
 )
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        None, "--version", "-V",
+        help="Show version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+):
+    """An iptables policy detective. Deterministic discovery, LLM-narrated findings, evasion linkage. UMD ENPM693 final project."""
 console = Console()
 
 

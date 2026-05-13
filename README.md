@@ -7,13 +7,33 @@ I built this for the UMD ENPM693 Network Security final project.
 `shaerlock` parses an `iptables-save` text dump, runs a deterministic
 pairwise anomaly detector against it, optionally enriches each finding
 through a pluggable LLM provider (local Ollama by default, Anthropic
-Claude as a fallback), and links each finding to a concrete network
-evasion technique with a MITRE ATT&CK reference. The headline numbers
-on the synthetic fixture: 100% recall against planted defects, 0
-hallucinated rule indices on 13 enriched findings.
+as a fallback), and links each finding to a concrete network evasion
+technique with a MITRE ATT&CK reference. On the synthetic fixture:
+100% recall against planted defects, 0 hallucinated rule indices on
+13 enriched findings.
 
 The LLM does not find the bugs. A deterministic algorithm does. The
 LLM only explains them, and the eval harness counts when it lies.
+
+<p align="center">
+  <img src="docs/img/audit-flawed.svg" alt="shaerlock audit output" width="850">
+</p>
+
+<details>
+<summary>Clean ruleset (zero false positives)</summary>
+
+<p align="center">
+  <img src="docs/img/audit-clean.svg" alt="shaerlock clean audit" width="700">
+</p>
+</details>
+
+<details>
+<summary>Evaluation harness output</summary>
+
+<p align="center">
+  <img src="docs/img/eval.svg" alt="shaerlock evaluation" width="500">
+</p>
+</details>
 
 ## Foundation vs contribution
 
@@ -34,13 +54,13 @@ the literature.
 * A deterministic detector and an LLM enricher that do not share a
   decision boundary, with hallucinated rule indices counted as a
   measured metric.
-* A static `AnomalyClass → MITRE ATT&CK + citation` linkage table
+* A static `AnomalyClass -> MITRE ATT&CK + citation` linkage table
   that turns each finding into an offensive narrative.
 * A pluggable, offline-first provider design. Same fixture, same
   scoring function, two providers (Ollama and Anthropic), comparable
   output.
-* A live pcap artifact tied to the SHADOWING finding via Ptacek-
-  Newsham (1998).
+* A live pcap artifact tied to the SHADOWING finding via Ptacek-Newsham
+  (1998).
 
 ## Quickstart on Kali or Debian
 
@@ -54,7 +74,7 @@ python -m pip install -e ".[anthropic,dev]"
 # Run the deterministic analyzer only (no LLM, no API call):
 shaerlock audit tests/fixtures/flawed-ruleset.txt --no-llm
 
-# Run the test suite (28 tests, ~0.2s):
+# Run the test suite (35 tests, ~0.1s):
 pytest -q
 ```
 
@@ -82,11 +102,11 @@ shaerlock evaluate tests/fixtures/flawed-ruleset.txt \
 ```
 
 Concrete numbers from the run on the synthetic fixture in this repo
-are reported in `docs/EVALUATION.md`. Headline:
+are reported in `docs/EVALUATION.md`.
 
-* deterministic recall against planted defects: **5/5 = 1.000**
-* hallucinated LLM rule references: **0/13 enriched findings**
-* clean control ruleset: **0 findings** (no false positives)
+* Deterministic recall against planted defects: 5/5 = 1.000
+* Hallucinated LLM rule references: 0/13 enriched findings
+* Clean control ruleset: 0 findings (no false positives)
 
 ## Running the fragmentation evasion demo
 
@@ -97,9 +117,9 @@ wireshark demo/frag.pcap
 ```
 
 The demo emits a pair of overlapping IPv4 fragments to `127.0.0.1`
-and captures them with `tcpdump`. The pcap visualizes the Ptacek-
-Newsham fragmentation pattern linked to the SHADOWING anomaly class.
-Localhost-only by construction. No real exfiltration. See
+and captures them with `tcpdump`. The pcap visualizes the
+Ptacek-Newsham fragmentation pattern linked to the SHADOWING anomaly
+class. Localhost-only by construction. No real exfiltration. See
 `demo/README.md` for the mechanism and ethical-scope notes.
 
 ## End-to-end test
@@ -112,8 +132,8 @@ Runs venv setup, install, pytest, every CLI subcommand against the
 shipped fixtures, and the evaluation harness. Exits non-zero if any
 required step fails. The Anthropic provider step is skipped when no
 key is configured. The fragmentation demo step is skipped when not
-running as root. See `docs/E2E.md` for the same flow as a human-
-readable checklist with expected output.
+running as root. See `docs/E2E.md` for the full checklist with
+expected output.
 
 ## Layout
 
@@ -126,13 +146,12 @@ tests/              pytest suite + fixtures (flawed + clean rulesets +
                     ANSWERS)
 eval-runs/          evaluation harness JSON output (the receipts cited
                     in docs/EVALUATION.md)
-scripts/            e2e.sh
+scripts/            e2e.sh, screenshots.py
 ```
 
 The Python import path is `ai_fw_audit/` for historical reasons. The
-distribution name and the console script are `shaerlock`. This is
-the same pattern `python-dateutil` uses (ships as `python-dateutil`,
-imports as `dateutil`).
+distribution name and the console script are `shaerlock`. Same pattern
+as `python-dateutil` (ships as `python-dateutil`, imports as `dateutil`).
 
 ## Testing
 
@@ -140,12 +159,16 @@ imports as `dateutil`).
 pytest -q
 ```
 
-The shipped suite (28 tests) covers parser correctness, deterministic
-analyzer correctness against the planted defects in
-`flawed-ruleset.ANSWERS.md`, evasion-mapping completeness, and an
-offline path through the LLM evaluation harness.
+The shipped suite (35 tests) covers parser correctness, deterministic
+analyzer correctness against planted defects in both the INPUT-chain
+(`flawed-ruleset.ANSWERS.md`) and FORWARD-chain
+(`flawed-forward.ANSWERS.md`) fixtures, evasion-mapping completeness,
+and an offline path through the LLM evaluation harness.
 
-## Limitations (read this before claiming results)
+Core module coverage: `analyzer` 88%, `enricher` 100%, `evasion` 100%,
+`schemas` 92%.
+
+## Limitations
 
 * Filter table only. NAT, mangle, and raw tables are out of scope.
 * No cross-chain reachability. Custom-chain `JUMP` traversal is not
@@ -157,13 +180,12 @@ offline path through the LLM evaluation harness.
 * The fragmentation demo on Linux loopback *visualizes* the fragment
   pattern. It does not claim an end-to-end bypass on a real-world
   router-plus-host topology. See `demo/README.md`.
-* The LLM, even constrained, can give a wrong severity. The
-  evaluation harness reports severity distribution and hallucinated
-  rule references so the tradeoff is auditable per-run rather than
-  hidden.
+* The LLM, even constrained, can give a wrong severity. The evaluation
+  harness reports severity distribution and hallucinated rule references
+  so the tradeoff is auditable per-run rather than hidden.
 
-The long version, with the full tradeoff list and the academic
-lineage, lives in `docs/PROJECT_DOSSIER.md` (sections 9 and 10).
+The long version, with the full tradeoff list and the academic lineage,
+lives in `docs/PROJECT_DOSSIER.md` (sections 9 and 10).
 
 ## License
 
